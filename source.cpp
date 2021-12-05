@@ -1,12 +1,11 @@
 #include <mpi.h>
-#include <ctime>
-#include <fstream>
 #include <iomanip>
 #include <iostream>
 #include <algorithm>
 #include <cmath>
-#include <iomanip>
 using namespace std;
+
+int N;
 
 double* create_vector(int n) {
 	double* vector = new double[n];
@@ -32,21 +31,34 @@ double* create_matrix(int n) {
 	return matrix;
 }
 
-double* create_generate_ex_matrix(int n, double* solution) {
-	double* matrix = new double[n * (n + 1)];
-	for (int i = 0; i < n; ++i) {
-		// matrix[i * (n + 1) + i] = 100;
-		matrix[i * (n + 2)] = 100.0;
-		for (int j = 0; j < n; ++j) {
-			if (i != j) {
-				matrix[i * (n + 1) + j] = (2 * i + j) / 100000.0; // TODO
-			}
-		}
-		matrix[i * (n+1) + n] = 0;
-		for (int j = 0; j < n; ++j) {
-			matrix[i * (n + 1) + n] += matrix[i * (n+1) + j] * solution[j];
-		}
-	}
+int p(int y, int x) {
+    return y * (N + 1) + x;
+}
+
+double* generate_extended_matrix(int n, const double* solution) {
+	auto* matrix = new double[n * (n + 1)];
+    for (int i = 0; i < n; ++i) {
+        for (int j = 0; j < n; ++j) {
+            matrix[p(i, j)] = 0;
+        }
+    }
+    for (int i = 0; i < n; ++i) {
+        for (int j = 0; j < n; ++j) {
+            if (i == j) {
+                matrix[p(i, j)] = 100;
+            } else {
+                matrix[p(i, j)] = (2.0 * i + j) / 100000;
+            }
+        }
+    }
+
+    for (int i = 0; i < n; ++i) {
+        double sum = 0.0;
+        for (int j = 0; j < n; ++j) {
+            sum += matrix[p(i, j)] * solution[j];
+        }
+        matrix[p(i, n)] = sum;
+    }
 	return matrix;
 }
 
@@ -54,14 +66,6 @@ void clear_matrix(double* matrix) {
 	delete[] matrix;
 }
 
-void print_ex_matrix(double* matrix, int n) {
-	for (int i = 0; i < n; ++i) {
-		for (int j = 0; j < n + 1; ++j) {
-			cout << matrix[i * (n + 1) + j] << "\t";
-		}
-		cout << endl;
-	}
-}
 
 void print_matrix(double* matrix, int n, int m) {
 	for (int i = 0; i < n; ++i) {
@@ -257,6 +261,7 @@ int main(int argc, char ** argv) {
 	}
 
 	n = atoi(argv[2]);
+    N = n;
 	q2 = size;
 	r3 = atoi(argv[4]);
 
@@ -269,7 +274,7 @@ int main(int argc, char ** argv) {
 
 		double* y = create_vector(n);
 
-		matrix = create_generate_ex_matrix(n, y);
+		matrix = generate_extended_matrix(n, y);
 		print_matrix(matrix, n, n + 1);
 
 		clear_vector(y);
