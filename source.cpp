@@ -9,14 +9,14 @@ using namespace std;
 int N;
 
 double *create_vector(int n) {
-    double *vector = new double[n];
+    auto *vector = new double[n];
     for (int i = 0; i < n; ++i) {
         vector[i] = 1.0;
     }
     return vector;
 }
 
-void clear_vector(double *vector) {
+void clear_vector(const double *vector) {
     delete[] vector;
 }
 
@@ -28,7 +28,7 @@ void print_vector(double *vector, int n) {
 }
 
 double *create_matrix(int n) {
-    double *matrix = new double[n];
+    auto *matrix = new double[n];
     return matrix;
 }
 
@@ -63,7 +63,7 @@ double *generate_extended_matrix(int n, const double *solution) {
     return matrix;
 }
 
-void clear_matrix(double *matrix) {
+void clear_matrix(const double *matrix) {
     delete[] matrix;
 }
 
@@ -73,79 +73,6 @@ void print_matrix(double *matrix, int n, int m) {
             cout << setprecision(10) << matrix[i * m + j] << "\t";
         }
         cout << endl;
-    }
-}
-
-
-void tile_row(double *a, double *u, int n, int rank, int jgl, int r2, int r3, int rank_size, MPI_Status &status) {
-    int iglxr2 = rank * r2;
-    int jglxr3 = jgl * r3;
-
-    int jmax = min(jglxr3 + r3, n + 1);
-    int imax = min(iglxr2 + r2, n);
-
-    for (int k = 0; k < n; ++k) {
-        int rank_counts_u = k / r2;
-        if (rank == rank_counts_u) {
-            int kloc = k - iglxr2;
-            for (int j = jglxr3; j < jmax; ++j) {
-                int jloc = j - jglxr3;
-                u[jloc] = a[kloc * (n + 1) + j] / a[kloc * (n + 1) + k];
-            }
-        } else if (rank > rank_counts_u) {
-            MPI_Recv(&(u[0]), r3, MPI_DOUBLE, rank - 1, 100, MPI_COMM_WORLD, &status);
-        }
-        if (rank >= rank_counts_u && rank < rank_size - 1) {
-            MPI_Send(&(u[0]), r3, MPI_DOUBLE, rank + 1, 100, MPI_COMM_WORLD);
-        }
-        for (int i = max(k + 1, iglxr2); i < imax; ++i) {
-            int iloc = i - iglxr2;
-            for (int j = max(k + 1, jglxr3); j < jmax; ++j) {
-                int jloc = j - jglxr3;
-                a[iloc * (n + 1) + j] -= a[iloc * (n + 1) + k] * u[jloc];
-            }
-        }
-    }
-}
-
-void tile_block(double *a, double *u, int n, int rank, int jgl, int r2, int r3, int rank_size, MPI_Status &status) {
-    int iglxr2 = rank * r2;
-    int jglxr3 = jgl * r3;
-
-    int jmax = min(jglxr3 + r3, n + 1);
-    int imax = min(iglxr2 + r2, n);
-
-    for (int k = 0; k < n; ++k) {
-        int rank_counts_u = k / r2;
-        if (rank > rank_counts_u && k % r2 == 0) {
-            MPI_Recv(&(u[0]), r2 * r3, MPI_DOUBLE, rank - 1, 100, MPI_COMM_WORLD, &status);
-            if (rank < rank_size - 1) {
-                MPI_Send(&(u[0]), r2 * r3, MPI_DOUBLE, rank + 1, 100, MPI_COMM_WORLD);
-            }
-        }
-        if (rank == rank_counts_u) {
-            int kloc = k - iglxr2;
-            int klocxr3 = kloc * r3;
-            int klocxn1 = kloc * (n + 1);
-            int klocxn1k = klocxn1 + k;
-            for (int j = jglxr3; j < jmax; ++j) {
-                int jloc = j - jglxr3;
-                u[klocxr3 + jloc] = a[klocxn1 + j] / a[klocxn1k];
-            }
-            if (rank < (k + 1) / r2 && rank < rank_size - 1) {
-                MPI_Send(&(u[0]), r2 * r3, MPI_DOUBLE, rank + 1, 100, MPI_COMM_WORLD);
-            }
-        }
-        for (int i = max(k + 1, iglxr2); i < imax; ++i) {
-            int iloc = i - iglxr2;
-            int ilocxr3 = iloc * r3;
-            int ilocxn1 = iloc * (n + 1);
-            int ilocxn1k = ilocxn1 + k;
-            for (int j = max(k + 1, jglxr3); j < jmax; ++j) {
-                int jloc = j - jglxr3;
-                a[ilocxn1 + j] -= a[ilocxn1k] * u[ilocxr3 + jloc];
-            }
-        }
     }
 }
 
@@ -161,11 +88,10 @@ void tile(double *a, double *u, int n, int rank, int jgl, int r2, int r3, int ra
         int kxr3 = k * r3;
         for (int i = iglxr2; i < imax; ++i) {
             int iloc = i - iglxr2;
-            int ilocxn1 = iloc * (n + 1);
             for (int j = max(k + 1, jglxr3); j < jmax; ++j) {
                 int jloc = j - jglxr3;
                 // a(i,j) -= a(i,k) u(k,j)
-                a[ilocxn1 + j] -= a[ilocxn1 + k] * u[kxr3 + jloc];
+                a[p(iloc, j)] -= a[p(iloc, k)] * u[kxr3 + jloc];
             }
         }
     }
@@ -173,44 +99,24 @@ void tile(double *a, double *u, int n, int rank, int jgl, int r2, int r3, int ra
     // count u, then count a
     for (int k = rank * r2; k < (rank + 1) * r2; ++k) {
         int kxr3 = k * r3;
-        // count u
-        //int rank_counts_u = k / r2;
-        //if (rank == rank_counts_u) {
+
         int kloc = k - iglxr2;
         int klocxn1 = kloc * (n + 1);
         for (int j = max(jglxr3, k + 1); j < jmax; ++j) {
             int jloc = j - jglxr3;
             u[kxr3 + jloc] = a[klocxn1 + j] / a[klocxn1 + k];
         }
-        //}
-        // count a
         for (int i = k + 1; i < imax; ++i) {
             int iloc = i - iglxr2;
-            int ilocxn1 = iloc * (n + 1);
             for (int j = max(k + 1, jglxr3); j < jmax; ++j) {
                 int jloc = j - jglxr3;
                 // a(i,j) -= a(i,k) u(k,j)
-                a[ilocxn1 + j] -= a[ilocxn1 + k] * u[kxr3 + jloc];
+                a[p(iloc, j)] -= a[p(iloc, k)] * u[kxr3 + jloc];
             }
         }
     }
 }
 
-void gauss_row(double *a, int n, int rank, int r2, int r3, int q3, int rank_size, MPI_Status &status) {
-    double *u = create_matrix(r3);
-    for (int jgl = 0; jgl < q3; ++jgl) {
-        tile_row(a, u, n, rank, jgl, r2, r3, rank_size, status);
-    }
-    clear_matrix(u);
-}
-
-void gauss_block(double *a, int n, int rank, int r2, int r3, int q3, int rank_size, MPI_Status &status) {
-    double *u = create_matrix(r2 * r3);
-    for (int jgl = 0; jgl < q3; ++jgl) {
-        tile_block(a, u, n, rank, jgl, r2, r3, rank_size, status);
-    }
-    clear_matrix(u);
-}
 
 void gauss(double *a, int n, int rank, int r2, int r3, int q3, int rank_size, MPI_Status &status) {
     double *u = create_matrix((rank + 1) * r2 * r3);
@@ -218,24 +124,25 @@ void gauss(double *a, int n, int rank, int r2, int r3, int q3, int rank_size, MP
         u[i] = 0.0;
     }
     for (int jgl = 0; jgl < q3; ++jgl) {
-        if (rank > 0) {
+        if (rank > 0) { // if slave
             MPI_Recv(u, rank * r2 * r3, MPI_DOUBLE, rank - 1, 1001, MPI_COMM_WORLD, &status);
         }
         tile(a, u, n, rank, jgl, r2, r3, rank_size, status);
-        if (rank < rank_size - 1) {
+        if (rank < rank_size - 1) { // if not last
             MPI_Send(u, (rank + 1) * r2 * r3, MPI_DOUBLE, rank + 1, 1001, MPI_COMM_WORLD);
         }
     }
     clear_matrix(u);
 }
 
-void gauss_inverse(double *a, double *x, int n) {
-    for (int i = n - 1; i >= 0; --i) {
-        x[i] = a[i * (n + 1) + n];
-        for (int j = i + 1; j < n; ++j) {
-            x[i] -= a[i * (n + 1) + j] * x[j];
+
+void gauss_inverse(const double *a, double *x) {
+    for (int i = N - 1; i >= 0; --i) {
+        x[i] = a[i * (N + 1) + N];
+        for (int j = i + 1; j < N; ++j) {
+            x[i] -= a[i * (N + 1) + j] * x[j];
         }
-        x[i] /= a[i * (n + 1) + i];
+        x[i] /= a[i * (N + 1) + i];
     }
 }
 
@@ -243,9 +150,7 @@ int main(int argc, char **argv) {
     int rank, size;
     MPI_Status status;
     int n, q2, q3, r2, r3;
-
     double *matrix = nullptr;
-
 
     MPI_Init(&argc, &argv);
     MPI_Comm_rank(MPI_COMM_WORLD, &rank);
@@ -253,28 +158,24 @@ int main(int argc, char **argv) {
 
     if (rank == 0) {
         if (argc < 5 || strcmp("-size", argv[1]) != 0 || strcmp("-r3", argv[3]) != 0) {
-            cerr << "Wrong arguments! Input must have the following options:" << endl <<
-                 "-size [n] -r3 [r3]" << endl;
+            cerr << "Bad arguments! Input must have the following options:\n-size [n] -r3 [r3]" << endl;
             exit(1);
         }
     }
-
     n = atoi(argv[2]);
+    r3 = atoi(argv[4]);
+
     N = n;
     q2 = size;
-    r3 = atoi(argv[4]);
 
     r2 = (n % q2) == 0 ? n / q2 : n / q2 + 1;
     q3 = (n % r3) == 0 ? n / r3 : n / r3 + 1;
 
     if (rank == 0) {
         cout << "Rank size: " << size << endl;
-
         double *y = create_vector(n);
-
         matrix = generate_extended_matrix(n, y);
         print_matrix(matrix, n, n + 1);
-
         clear_vector(y);
     }
 
@@ -293,28 +194,20 @@ int main(int argc, char **argv) {
 
 
     MPI_Scatterv(matrix, sendcounts, displs, MPI_DOUBLE, a, sendcounts[rank], MPI_DOUBLE, 0, MPI_COMM_WORLD);
-
     gauss(a, n, rank, r2, r3, q3, size, status);
-
     MPI_Gatherv(a, sendcounts[rank], MPI_DOUBLE, matrix, sendcounts, displs, MPI_DOUBLE, 0, MPI_COMM_WORLD);
 
     if (rank == 0) {
-
         auto *x = new double[n];
-
-
-        gauss_inverse(matrix, x, n);
-
+        gauss_inverse(matrix, x);
         print_vector(x, n);
-
         clear_matrix(matrix);
         delete[] x;
         delete[] displs;
         delete[] sendcounts;
     }
 
-    //clear_matrix(a);
-
+    clear_matrix(a);
     MPI_Finalize();
     return 0;
 }
