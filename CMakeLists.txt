@@ -3,10 +3,7 @@ project(gauss)
 
 set(CMAKE_CXX_STANDARD 14)
 
-#add_executable(main main.cpp)
-#add_executable(parallel_task main.cpp sequential.cpp)
 add_executable(main source.cpp)
-#add_executable(main gauss.c)
 
 # MPI
 find_package(MPI REQUIRED)
