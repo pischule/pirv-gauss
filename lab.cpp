@@ -7,7 +7,7 @@
 
 using namespace std;
 
-int matrix_size = 500;
+int matrix_size = 400;
 int current_rank;
 int current_size;
 int tile_size;
@@ -68,6 +68,30 @@ bool areEqual(vector<double> &a, vector<double> &b) {
     return true;
 }
 
+void broadcastRow(vector<double> &row, int row_number) {
+    MPI_Bcast(row.data(), matrix_size + 1, MPI_DOUBLE, row_number / tile_size, MPI_COMM_WORLD);
+}
+
+void translateRow(vector<double> &row, int row_number) {
+    if (current_rank > row_number / tile_size) {
+        MPI_Recv(row.data(),
+                 matrix_size + 1,
+                 MPI_DOUBLE,
+                 current_rank - 1,
+                 0,
+                 MPI_COMM_WORLD,
+                 MPI_STATUS_IGNORE);
+    }
+    if (current_rank >= row_number / tile_size && current_rank < current_size - 1) {
+        MPI_Send(row.data(),
+                 matrix_size + 1,
+                 MPI_DOUBLE,
+                 current_rank + 1,
+                 0,
+                 MPI_COMM_WORLD);
+    }
+}
+
 void tile(vector<double> &a, int k, vector<double> &row) {
     if (k / tile_size == current_rank) {
         int k_local = k % tile_size;
@@ -75,7 +99,9 @@ void tile(vector<double> &a, int k, vector<double> &row) {
             row[j] = a.at(yx(k_local, j)) / a.at(yx(k_local, k));
         }
     }
-    MPI_Bcast(row.data(), matrix_size + 1, MPI_DOUBLE, k / tile_size, MPI_COMM_WORLD);
+
+//    broadcastRow(row, k);
+    translateRow(row, k);
 
     int i_start = max(k + 1, current_rank * tile_size);
     int i_end = min(matrix_size, (current_rank + 1) * tile_size);
@@ -112,6 +138,16 @@ int main(int argc, char **argv) {
     MPI_Init(&argc, &argv);
     MPI_Comm_rank(MPI_COMM_WORLD, &current_rank);
     MPI_Comm_size(MPI_COMM_WORLD, &current_size);
+
+    if (current_rank == 0) {
+        if (argc != 2) {
+            cerr << "Usage: " << argv[0] << " MATRIX_SIZE" << endl;
+            MPI_Abort(MPI_COMM_WORLD, 1);
+            return 1;
+        }
+    }
+    matrix_size = atoi(argv[1]);
+
     tile_size = matrix_size / current_size;
     assert(matrix_size % current_size == 0);
 
@@ -120,8 +156,8 @@ int main(int argc, char **argv) {
     vector<double> local_extended_matrix(tile_size * (matrix_size + 1), 0);
 
     if (current_rank == 0) {
-//        x = vector<double>(matrix_size, 1.0);
-        x = randomVector(-100, 100);
+        x = vector<double>(matrix_size, 1.0);
+//        x = randomVector(-100, 100);
         extended_matrix = extendedMatrix(x);
 
     }
