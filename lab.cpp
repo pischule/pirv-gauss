@@ -149,7 +149,11 @@ int main(int argc, char **argv) {
     matrix_size = atoi(argv[1]);
 
     tile_size = matrix_size / current_size;
-    assert(matrix_size % current_size == 0);
+    if (current_rank == 0 && matrix_size % current_size != 0) {
+        cerr << "Matrix size must be divisible by number of processes" << endl;
+        MPI_Abort(MPI_COMM_WORLD, 1);
+        return 1;
+    }
 
     vector<double> x(0);               // only for master
     vector<double> extended_matrix(0); // only for master
@@ -159,7 +163,6 @@ int main(int argc, char **argv) {
         x = vector<double>(matrix_size, 1.0);
 //        x = randomVector(-100, 100);
         extended_matrix = extendedMatrix(x);
-
     }
 
     double start_time = MPI_Wtime();
