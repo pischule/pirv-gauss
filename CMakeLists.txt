@@ -3,7 +3,7 @@ project(gauss)
 
 set(CMAKE_CXX_STANDARD 14)
 
-add_executable(main source.cpp)
+add_executable(main lab.cpp)
 
 # MPI
 find_package(MPI REQUIRED)
