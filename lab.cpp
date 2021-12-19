@@ -2,8 +2,8 @@
 #include <algorithm>
 #include <vector>
 #include <cassert>
+#include <iomanip>
 #include <random>
-
 
 using namespace std;
 
@@ -186,10 +186,10 @@ int main(int argc, char **argv) {
 
     if (current_rank == 0) {
         vector<double> solution = backwardGauss(extended_matrix);
-        assert(areEqual(solution, x));
+//        assert(areEqual(solution, x));
 
         double end_time = MPI_Wtime();
-        cout << "Time: " << end_time - start_time << endl;
+        cout << "Time: " << setprecision(5) << end_time - start_time << endl;
     }
 
     return MPI_Finalize();
