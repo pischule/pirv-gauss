@@ -7,39 +7,35 @@
 
 using namespace std;
 
-int matrix_size = 20;
+int matrix_size = 500;
 int current_rank;
 int current_size;
+int tile_size;
 
 int yx(int y, int x);
 
-vector<double> forward_gauss(vector<double> a);
+vector<double> backwardGauss(vector<double> a);
 
-vector<double> backward_gauss(vector<double> a);
+vector<double> extendedMatrix(vector<double> &x);
 
-vector<double> generate_extended_matrix(vector<double> &x);
-
-bool check_solution(vector<double> &a, vector<double> &b);
-
-vector<double> gauss(vector<double> extended_matrix);
+bool vectorsAreEquals(vector<double> &a, vector<double> &b);
 
 int yx(int y, int x) {
     return y * (matrix_size + 1) + x;
 }
 
-vector<double> random_vector(double from, double to) {
-    assert(from <= to);
-    vector<double> x(matrix_size);
+vector<double> randomVector(double from, double to) {
+    vector<double> result(matrix_size);
     random_device rd;
     mt19937 gen(rd());
     uniform_real_distribution<> dis(from, to);
-    for (int i = 0; i < matrix_size; ++i) {
-        x[i] = dis(gen);
+    for (int i = 0; i < matrix_size; i++) {
+        result[i] = dis(gen);
     }
-    return x;
+    return result;
 }
 
-vector<double> generate_extended_matrix(vector<double> &x) {
+vector<double> extendedMatrix(vector<double> &x) {
     vector<double> matrix(matrix_size * (matrix_size + 1), 0);
     for (int i = 0; i < matrix_size; ++i) {
         for (int j = 0; j < matrix_size; ++j) {
@@ -61,65 +57,104 @@ vector<double> generate_extended_matrix(vector<double> &x) {
     return matrix;
 }
 
-bool check_solution(vector<double> &a, vector<double> &b) {
-    double max_delta = 0.01;
-
-    if (a.size() != b.size()) {
-        return false;
+bool vectorsAreEquals(vector<double> &a, vector<double> &b) {
+    double max_delta = 0.5;
+    for (int i = 0; i < matrix_size; ++i) {
+        if (abs(a[i] - b[i]) > max_delta) {
+            cerr << "Vectors are not equal, delta = " << abs(a[i] - b[i]) << endl;
+            return false;
+        }
     }
-
-    double delta = 0;
-    for (int i = 0; i < a.size(); ++i) {
-        delta += abs(a[i] - b[i]);
-    }
-
-    return delta < max_delta;
+    return true;
 }
 
-vector<double> gauss(vector<double> extended_matrix) {
-    extended_matrix = forward_gauss(extended_matrix);
-    return backward_gauss(extended_matrix);
+void tile(vector<double> &a, int k, vector<double> &row) {
+    if (k / tile_size == current_rank) {
+        int k_local = k % tile_size;
+        for (int j = 0; j < matrix_size; ++j) {
+            row[j] = a.at(yx(k_local, j)) / a.at(yx(k_local, k));
+        }
+    }
+    MPI_Bcast(row.data(), matrix_size + 1, MPI_DOUBLE, k / tile_size, MPI_COMM_WORLD);
+
+    int i_start = max(k + 1, current_rank * tile_size);
+    int i_end = min(matrix_size, (current_rank + 1) * tile_size);
+    for (int i = i_start; i < i_end; ++i) {
+        int i_local = i % tile_size;
+        for (int j = k + 1; j < matrix_size + 1; ++j) {
+            a.at(yx(i_local, j)) -= a.at(yx(i_local, k)) * row[j];
+        }
+    }
 }
 
 vector<double> forward_gauss(vector<double> a) {
+    vector<double> row(matrix_size + 1, 0);
     for (int k = 0; k < matrix_size - 1; ++k) {
-        for (int i = k + 1; i < matrix_size; ++i) {
-            for (int j = k + 1; j < matrix_size + 1; ++j) {
-                a[yx(i, j)] -= a[yx(i, k)] *
-                               a[yx(k, j)] / a[yx(k, k)];
-            }
-        }
+        tile(a, k, row);
     }
     return a;
 }
 
-vector<double> backward_gauss(vector<double> a) {
-    vector<double> x(matrix_size, 0);
+vector<double> backwardGauss(vector<double> a) {
+    vector<double> x(matrix_size);
     for (int i = matrix_size - 1; i >= 0; --i) {
-        x[i] = a[yx(i, matrix_size)];
+        double sum = 0;
         for (int j = i + 1; j < matrix_size; ++j) {
-            x[i] -= a[yx(i, j)] * x[j];
+            sum += a[yx(i, j)] * x[j];
         }
-        x[i] /= a[yx(i, i)];
+        x[i] = (a[yx(i, matrix_size)] - sum) / a[yx(i, i)];
     }
     return x;
 }
+
 
 int main(int argc, char **argv) {
     MPI_Init(&argc, &argv);
     MPI_Comm_rank(MPI_COMM_WORLD, &current_rank);
     MPI_Comm_size(MPI_COMM_WORLD, &current_size);
+    tile_size = matrix_size / current_size;
+    assert(matrix_size % current_size == 0);
 
-    vector<double> x;
-    vector<double> extended_matrix;
+    vector<double> x(0);               // only for master
+    vector<double> extended_matrix(0); // only for master
+    vector<double> local_extended_matrix(tile_size * (matrix_size + 1), 0);
 
     if (current_rank == 0) {
 //        x = vector<double>(matrix_size, 1.0);
-        x = random_vector(-100, 100);
-        extended_matrix = generate_extended_matrix(x);
+        x = randomVector(-100, 100);
+        extended_matrix = extendedMatrix(x);
 
-        vector<double> my_solution = gauss(extended_matrix);
-        assert(check_solution(my_solution, x));
     }
-    return 0;
+
+    double start_time = MPI_Wtime();
+
+    MPI_Scatter(extended_matrix.data(),
+                tile_size * (matrix_size + 1),
+                MPI_DOUBLE,
+                local_extended_matrix.data(),
+                tile_size * (matrix_size + 1),
+                MPI_DOUBLE,
+                0,
+                MPI_COMM_WORLD);
+
+    forward_gauss(local_extended_matrix);
+
+    MPI_Gather(local_extended_matrix.data(),
+               tile_size * (matrix_size + 1),
+               MPI_DOUBLE,
+               extended_matrix.data(),
+               tile_size * (matrix_size + 1),
+               MPI_DOUBLE,
+               0,
+               MPI_COMM_WORLD);
+
+    if (current_rank == 0) {
+        vector<double> solution = backwardGauss(extended_matrix);
+        assert(vectorsAreEquals(solution, x));
+
+        double end_time = MPI_Wtime();
+        cout << "Time: " << end_time - start_time << endl;
+    }
+
+    return MPI_Finalize();
 }
