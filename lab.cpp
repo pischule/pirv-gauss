@@ -18,7 +18,7 @@ vector<double> backwardGauss(vector<double> a);
 
 vector<double> extendedMatrix(vector<double> &x);
 
-bool vectorsAreEquals(vector<double> &a, vector<double> &b);
+bool areEqual(vector<double> &a, vector<double> &b);
 
 int yx(int y, int x) {
     return y * (matrix_size + 1) + x;
@@ -57,7 +57,7 @@ vector<double> extendedMatrix(vector<double> &x) {
     return matrix;
 }
 
-bool vectorsAreEquals(vector<double> &a, vector<double> &b) {
+bool areEqual(vector<double> &a, vector<double> &b) {
     double max_delta = 0.5;
     for (int i = 0; i < matrix_size; ++i) {
         if (abs(a[i] - b[i]) > max_delta) {
@@ -87,7 +87,7 @@ void tile(vector<double> &a, int k, vector<double> &row) {
     }
 }
 
-vector<double> forward_gauss(vector<double> a) {
+vector<double> forwardGauss(vector<double> a) {
     vector<double> row(matrix_size + 1, 0);
     for (int k = 0; k < matrix_size - 1; ++k) {
         tile(a, k, row);
@@ -137,7 +137,7 @@ int main(int argc, char **argv) {
                 0,
                 MPI_COMM_WORLD);
 
-    forward_gauss(local_extended_matrix);
+    forwardGauss(local_extended_matrix);
 
     MPI_Gather(local_extended_matrix.data(),
                tile_size * (matrix_size + 1),
@@ -150,7 +150,7 @@ int main(int argc, char **argv) {
 
     if (current_rank == 0) {
         vector<double> solution = backwardGauss(extended_matrix);
-        assert(vectorsAreEquals(solution, x));
+        assert(areEqual(solution, x));
 
         double end_time = MPI_Wtime();
         cout << "Time: " << end_time - start_time << endl;
